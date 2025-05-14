@@ -1,3 +1,6 @@
+# TODO: 更多的可配置项
+# TODO: 所有模型单独分离，温度可配置
+# TODO: 原生多模态支持
 import os
 import re
 from dataclasses import dataclass, field
@@ -23,9 +26,9 @@ install(extra_lines=3)
 logger = get_logger("config")
 
 # 考虑到，实际上配置文件中的mai_version是不会自动更新的,所以采用硬编码
-is_test = False
-mai_version_main = "0.6.3"
-mai_version_fix = "fix-3"
+is_test = True
+mai_version_main = "0.6.4"
+mai_version_fix = "snapshot-1"
 
 if mai_version_fix:
     if is_test:
@@ -156,6 +159,7 @@ class BotConfig:
     personality_detail_level: int = (
         0  # 人设消息注入 prompt 详细等级 (0: 采用默认配置, 1: 核心/随机细节, 2: 核心+随机侧面/全部细节, 3: 全部)
     )
+    expression_style = "描述麦麦说话的表达风格，表达习惯"
     # identity
     identity_detail: List[str] = field(
         default_factory=lambda: [
@@ -275,20 +279,47 @@ class BotConfig:
     remote_enable: bool = True  # 是否启用远程控制
 
     # experimental
+    enable_Legacy_HFC: bool = False  # 是否启用旧 HFC 处理器
     enable_friend_chat: bool = False  # 是否启用好友聊天
     # enable_think_flow: bool = False  # 是否启用思考流程
+    enable_friend_whitelist: bool = True  # 是否启用好友白名单
     talk_allowed_private = set()
-    enable_pfc_chatting: bool = False  # 是否启用PFC聊天
-    enable_pfc_reply_checker: bool = True  # 是否开启PFC回复检查
-    pfc_message_buffer_size: int = (
-        2  # PFC 聊天消息缓冲数量，有利于使聊天节奏更加紧凑流畅，请根据实际 LLM 响应速度进行调整，默认2条
-    )
     api_polling_max_retries: int = 3  # 神秘小功能
     rename_person: bool = (
         True  # 是否启用改名工具，可以让麦麦对唯一名进行更改，可能可以更拟人地称呼他人，但是也可能导致记忆混淆的问题
     )
 
-    # idle_chat
+    # pfc
+    enable_pfc_chatting: bool = False  # 是否启用PFC聊天，该功能仅作用于私聊，与回复模式独立
+    pfc_message_buffer_size: int = (
+        2  # PFC 聊天消息缓冲数量，有利于使聊天节奏更加紧凑流畅，请根据实际 LLM 响应速度进行调整，默认2条
+    )
+    pfc_recent_history_display_count: int = 18  # PFC 对话最大可见上下文
+
+    # pfc.checker
+    enable_pfc_reply_checker: bool = True  # 是否启用 PFC 的回复检查器
+    pfc_max_reply_attempts: int = 3  # 发言最多尝试次数
+    pfc_max_chat_history_for_checker: int = 30  # checker聊天记录最大可见上文长度
+
+    # pfc.emotion
+    pfc_emotion_update_intensity: float = 0.6  # 情绪更新强度
+    pfc_emotion_history_count: int = 5  # 情绪更新最大可见上下文长度
+
+    # pfc.relationship
+    pfc_relationship_incremental_interval: int = 10  # 关系值增值强度
+    pfc_relationship_incremental_msg_count: int = 10  # 会话中，关系值判断最大可见上下文
+    pfc_relationship_incremental_default_change: float = (
+        1.0  # 会话中，关系值默认更新值（当 llm 返回错误时默认采用该值）
+    )
+    pfc_relationship_incremental_max_change: float = 5.0  # 会话中，关系值最大可变值
+    pfc_relationship_final_msg_count: int = 30  # 会话结束时，关系值判断最大可见上下文
+    pfc_relationship_final_default_change: float = 5.0  # 会话结束时，关系值默认更新值
+    pfc_relationship_final_max_change: float = 50.0  # 会话结束时，关系值最大可变值
+
+    # pfc.fallback
+    pfc_historical_fallback_exclude_seconds: int = 45  # pfc 翻看聊天记录排除最近时长
+
+    # pfc.idle_chat
     enable_idle_chat: bool = False  # 是否启用 pfc 主动发言
     idle_check_interval: int = 10  # 检查间隔，10分钟检查一次
     min_cooldown: int = 7200  # 最短冷却时间，2小时 (7200秒)
@@ -301,6 +332,7 @@ class BotConfig:
     nickname_queue_max_size: int = 100  # 绰号处理队列最大容量
     nickname_process_sleep_interval: float = 5  # 绰号处理进程休眠间隔（秒）
     nickname_analysis_history_limit: int = 30  # 绰号处理可见最大上下文
+    nickname_analysis_probability: float = 0.1  # 绰号随机概率命中，该值越大，绰号分析越频繁
 
     # 模型配置
     llm_reasoning: dict[str, str] = field(default_factory=lambda: {})
@@ -395,6 +427,8 @@ class BotConfig:
                 config.personality_detail_level = personality_config.get(
                     "personality_detail_level", config.personality_sides
                 )
+            if config.INNER_VERSION in SpecifierSet(">=1.7.0"):
+                config.expression_style = personality_config.get("expression_style", config.expression_style)
 
         def identity(parent: dict):
             identity_config = parent["identity"]
@@ -457,6 +491,9 @@ class BotConfig:
                 )
                 config.nickname_analysis_history_limit = group_nickname_config.get(
                     "nickname_analysis_history_limit", config.nickname_analysis_history_limit
+                )
+                config.nickname_analysis_probability = group_nickname_config.get(
+                    "nickname_analysis_probability", config.nickname_analysis_probability
                 )
 
         def bot(parent: dict):
@@ -547,10 +584,10 @@ class BotConfig:
                 "llm_heartflow",
                 "llm_PFC_action_planner",
                 "llm_PFC_chat",
-                "llm_PFC_relationship_eval",
                 "llm_nickname_mapping",
                 "llm_scheduler_all",
                 "llm_scheduler_doing",
+                "llm_PFC_relationship_eval",
             ]
 
             for item in config_list:
@@ -713,41 +750,104 @@ class BotConfig:
             # config.ban_user_id = set(groups_config.get("ban_user_id", []))
             config.ban_user_id = set(str(user) for user in groups_config.get("ban_user_id", []))
 
-        def platforms(parent: dict):
-            platforms_config = parent["platforms"]
-            if platforms_config and isinstance(platforms_config, dict):
-                for k in platforms_config.keys():
-                    config.api_urls[k] = platforms_config[k]
-
         def experimental(parent: dict):
             experimental_config = parent["experimental"]
             config.enable_friend_chat = experimental_config.get("enable_friend_chat", config.enable_friend_chat)
             # config.enable_think_flow = experimental_config.get("enable_think_flow", config.enable_think_flow)
             config.talk_allowed_private = set(str(user) for user in experimental_config.get("talk_allowed_private", []))
-            if config.INNER_VERSION in SpecifierSet(">=1.1.0"):
-                config.enable_pfc_chatting = experimental_config.get("pfc_chatting", config.enable_pfc_chatting)
+            if config.INNER_VERSION in SpecifierSet(">=1.6.2.4"):
+                config.enable_friend_whitelist = experimental_config.get(
+                    "enable_friend_whitelist", config.enable_friend_whitelist
+                )
             if config.INNER_VERSION in SpecifierSet(">=1.6.1.5"):
                 config.api_polling_max_retries = experimental_config.get(
                     "api_polling_max_retries", config.api_polling_max_retries
                 )
-            if config.INNER_VERSION in SpecifierSet(">=1.6.2"):
-                config.enable_pfc_reply_checker = experimental_config.get(
-                    "enable_pfc_reply_checker", config.enable_pfc_reply_checker
-                )
-                logger.info(f"PFC Reply Checker 状态: {'启用' if config.enable_pfc_reply_checker else '关闭'}")
-                config.pfc_message_buffer_size = experimental_config.get(
-                    "pfc_message_buffer_size", config.pfc_message_buffer_size
-                )
             if config.INNER_VERSION in SpecifierSet(">=1.6.2.3"):
                 config.rename_person = experimental_config.get("rename_person", config.rename_person)
+            if config.INNER_VERSION in SpecifierSet(">=1.7.0.1"):
+                config.enable_Legacy_HFC = experimental_config.get("enable_Legacy_HFC", config.enable_Legacy_HFC)
 
-        def idle_chat(parent: dict):
-            idle_chat_config = parent["idle_chat"]
-            if config.INNER_VERSION in SpecifierSet(">=1.6.1.6"):
-                config.enable_idle_chat = idle_chat_config.get("enable_idle_chat", config.enable_idle_chat)
-                config.idle_check_interval = idle_chat_config.get("idle_check_interval", config.idle_check_interval)
-                config.min_cooldown = idle_chat_config.get("min_cooldown", config.min_cooldown)
-                config.max_cooldown = idle_chat_config.get("max_cooldown", config.max_cooldown)
+        def pfc(parent: dict):
+            if config.INNER_VERSION in SpecifierSet(">=1.6.2.4"):
+                pfc_config = parent.get("pfc", {})
+                # 解析 [pfc] 下的直接字段
+                config.enable_pfc_chatting = pfc_config.get("enable_pfc_chatting", config.enable_pfc_chatting)
+                config.pfc_message_buffer_size = pfc_config.get(
+                    "pfc_message_buffer_size", config.pfc_message_buffer_size
+                )
+                config.pfc_recent_history_display_count = pfc_config.get(
+                    "pfc_recent_history_display_count", config.pfc_recent_history_display_count
+                )
+
+                # 解析 [[pfc.checker]] 子表
+                checker_list = pfc_config.get("checker", [])
+                if checker_list and isinstance(checker_list, list):
+                    checker_config = checker_list[0] if checker_list else {}
+                    config.enable_pfc_reply_checker = checker_config.get(
+                        "enable_pfc_reply_checker", config.enable_pfc_reply_checker
+                    )
+                    config.pfc_max_reply_attempts = checker_config.get(
+                        "pfc_max_reply_attempts", config.pfc_max_reply_attempts
+                    )
+                    config.pfc_max_chat_history_for_checker = checker_config.get(
+                        "pfc_max_chat_history_for_checker", config.pfc_max_chat_history_for_checker
+                    )
+
+                # 解析 [[pfc.emotion]] 子表
+                emotion_list = pfc_config.get("emotion", [])
+                if emotion_list and isinstance(emotion_list, list):
+                    emotion_config = emotion_list[0] if emotion_list else {}
+                    config.pfc_emotion_update_intensity = emotion_config.get(
+                        "pfc_emotion_update_intensity", config.pfc_emotion_update_intensity
+                    )
+                    config.pfc_emotion_history_count = emotion_config.get(
+                        "pfc_emotion_history_count", config.pfc_emotion_history_count
+                    )
+
+                # 解析 [[pfc.relationship]] 子表
+                relationship_list = pfc_config.get("relationship", [])
+                if relationship_list and isinstance(relationship_list, list):
+                    relationship_config = relationship_list[0] if relationship_list else {}
+                    config.pfc_relationship_incremental_interval = relationship_config.get(
+                        "pfc_relationship_incremental_interval", config.pfc_relationship_incremental_interval
+                    )
+                    config.pfc_relationship_incremental_msg_count = relationship_config.get(
+                        "pfc_relationship_incremental_msg_count", config.pfc_relationship_incremental_msg_count
+                    )
+                    config.pfc_relationship_incremental_default_change = relationship_config.get(
+                        "pfc_relationship_incremental_default_change",
+                        config.pfc_relationship_incremental_default_change,
+                    )
+                    config.pfc_relationship_incremental_max_change = relationship_config.get(
+                        "pfc_relationship_incremental_max_change", config.pfc_relationship_incremental_max_change
+                    )
+                    config.pfc_relationship_final_msg_count = relationship_config.get(
+                        "pfc_relationship_final_msg_count", config.pfc_relationship_final_msg_count
+                    )
+                    config.pfc_relationship_final_default_change = relationship_config.get(
+                        "pfc_relationship_final_default_change", config.pfc_relationship_final_default_change
+                    )
+                    config.pfc_relationship_final_max_change = relationship_config.get(
+                        "pfc_relationship_final_max_change", config.pfc_relationship_final_max_change
+                    )
+
+                # 解析 [[pfc.fallback]] 子表
+                fallback_list = pfc_config.get("fallback", [])
+                if fallback_list and isinstance(fallback_list, list):
+                    fallback_config = fallback_list[0] if fallback_list else {}
+                    config.pfc_historical_fallback_exclude_seconds = fallback_config.get(
+                        "pfc_historical_fallback_exclude_seconds", config.pfc_historical_fallback_exclude_seconds
+                    )
+
+                # 解析 [[pfc.idle_chat]] 子表
+                idle_chat_list = pfc_config.get("idle_chat", [])
+                if idle_chat_list and isinstance(idle_chat_list, list):
+                    idle_chat_config = idle_chat_list[0] if idle_chat_list else {}
+                    config.enable_idle_chat = idle_chat_config.get("enable_idle_chat", config.enable_idle_chat)
+                    config.idle_check_interval = idle_chat_config.get("idle_check_interval", config.idle_check_interval)
+                    config.min_cooldown = idle_chat_config.get("min_cooldown", config.min_cooldown)
+                    config.max_cooldown = idle_chat_config.get("max_cooldown", config.max_cooldown)
 
         # 版本表达式：>=1.0.0,<2.0.0
         # 允许字段：func: method, support: str, notice: str, necessary: bool
@@ -776,14 +876,13 @@ class BotConfig:
             "remote": {"func": remote, "support": ">=0.0.10", "necessary": False},
             "keywords_reaction": {"func": keywords_reaction, "support": ">=0.0.2", "necessary": False},
             "chinese_typo": {"func": chinese_typo, "support": ">=0.0.3", "necessary": False},
-            "platforms": {"func": platforms, "support": ">=1.0.0"},
             "response_splitter": {"func": response_splitter, "support": ">=0.0.11", "necessary": False},
             "experimental": {"func": experimental, "support": ">=0.0.11", "necessary": False},
             "chat": {"func": chat, "support": ">=1.6.0", "necessary": False},
             "normal_chat": {"func": normal_chat, "support": ">=1.6.0", "necessary": False},
             "focus_chat": {"func": focus_chat, "support": ">=1.6.0", "necessary": False},
             "group_nickname": {"func": group_nickname, "support": ">=1.6.1.1", "necessary": False},
-            "idle_chat": {"func": idle_chat, "support": ">=1.6.1.6", "necessary": False},
+            "pfc": {"func": pfc, "support": ">=1.6.2.4", "necessary": False},
         }
 
         # 原地修改，将 字符串版本表达式 转换成 版本对象
