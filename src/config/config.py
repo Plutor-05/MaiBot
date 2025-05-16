@@ -1,7 +1,6 @@
 # TODO: 更多的可配置项
 # TODO: 所有模型单独分离，温度可配置
 # TODO: 原生多模态支持
-from importlib.util import spec_from_file_location
 import os
 import re
 from dataclasses import dataclass, field
@@ -354,6 +353,7 @@ class BotConfig:
     llm_nickname_mapping: Dict[str, str] = field(default_factory=lambda: {})
     llm_scheduler_all: Dict[str, str] = field(default_factory=lambda: {})
     llm_scheduler_doing: Dict[str, str] = field(default_factory=lambda: {})
+    llm_PFC_relationship_eval: Dict[str, str] = field(default_factory=lambda: {})
 
     api_urls: Dict[str, str] = field(default_factory=lambda: {})
 
