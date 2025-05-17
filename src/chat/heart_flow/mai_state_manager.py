@@ -18,19 +18,14 @@ enable_unlimited_hfc_chat = True  # 调试用：无限专注聊天
 prevent_offline_state = True
 # 目前默认不启用OFFLINE状态
 
-# 不同状态下普通聊天的最大消息数
-base_normal_chat_num = global_config.base_normal_chat_num
-base_focused_chat_num = global_config.base_focused_chat_num
-
-
-MAX_NORMAL_CHAT_NUM_PEEKING = int(base_normal_chat_num / 2)
-MAX_NORMAL_CHAT_NUM_NORMAL = base_normal_chat_num
-MAX_NORMAL_CHAT_NUM_FOCUSED = base_normal_chat_num + 1
+MAX_NORMAL_CHAT_NUM_PEEKING = int(global_config.chat.base_normal_chat_num / 2)
+MAX_NORMAL_CHAT_NUM_NORMAL = global_config.chat.base_normal_chat_num
+MAX_NORMAL_CHAT_NUM_FOCUSED = global_config.chat.base_normal_chat_num + 1
 
 # 不同状态下专注聊天的最大消息数
-MAX_FOCUSED_CHAT_NUM_PEEKING = int(base_focused_chat_num / 2)
-MAX_FOCUSED_CHAT_NUM_NORMAL = base_focused_chat_num
-MAX_FOCUSED_CHAT_NUM_FOCUSED = base_focused_chat_num + 2
+MAX_FOCUSED_CHAT_NUM_PEEKING = int(global_config.chat.base_focused_chat_num / 2)
+MAX_FOCUSED_CHAT_NUM_NORMAL = global_config.chat.base_focused_chat_num
+MAX_FOCUSED_CHAT_NUM_FOCUSED = global_config.chat.base_focused_chat_num + 2
 
 # -- 状态定义 --
 
@@ -106,7 +101,7 @@ class MaiStateInfo:
             self.last_status_change_time = current_time
             self.last_min_check_time = current_time  # Reset 1-min check on any state change
             self.mai_status_history.append((new_status, current_time))
-            logger.info(f"麦麦状态更新为: {self.mai_status.value}")
+            logger.info(f"{global_config.bot.nickname}状态更新为: {self.mai_status.value}")
             return True
         else:
             return False

@@ -38,7 +38,7 @@ class Heartflow:
 
         # LLM模型配置
         self.llm_model = LLMRequest(
-            model=global_config.llm_heartflow, temperature=0.6, max_tokens=1000, request_type="heart_flow"
+            model=global_config.model.heartflow, temperature=0.6, max_tokens=1000, request_type="heart_flow"
         )
 
         # 外部依赖模块
@@ -89,7 +89,7 @@ class Heartflow:
         await self.background_task_manager.start_tasks()
         logger.info("[Heartflow] 后台任务已启动")
 
-    # 根本不会用到这个函数吧，那样麦麦直接死了
+    # 根本不会用到这个函数吧，那样{global_config.bot.nickname}直接死了
     async def stop_working(self):
         """停止所有任务和子心流"""
         logger.info("[Heartflow] 正在停止任务和子心流...")
@@ -105,7 +105,7 @@ class Heartflow:
         )
         self.past_mind.append(self.current_mind)
         self.current_mind = new_mind
-        logger.info(f"麦麦的总体脑内状态更新为：{self.current_mind[:100]}...")
+        logger.info(f"{global_config.bot.nickname}的总体脑内状态更新为：{self.current_mind[:100]}...")
         self.mind.update_subflows_with_main_mind(new_mind)
 
 

@@ -6,14 +6,13 @@ from src.chat.utils.chat_message_builder import build_readable_messages, get_raw
 from src.chat.person_info.relationship_manager import relationship_manager
 from src.chat.utils.utils import get_embedding
 import time
-from typing import Union, Optional, Dict, Any
+from typing import Union, Optional
 from src.common.database import db
 from src.chat.utils.utils import get_recent_group_speaker
 from src.manager.mood_manager import mood_manager
 from src.chat.memory_system.Hippocampus import HippocampusManager
 from src.chat.knowledge.knowledge_lib import qa_manager
 from src.chat.focus_chat.expressors.exprssion_learner import expression_learner
-import traceback
 import random
 from src.plugins.group_nickname.nickname_manager import nickname_manager
 
@@ -144,7 +143,7 @@ async def _build_prompt_focus(
     message_list_before_now = get_raw_msg_before_timestamp_with_chat(
         chat_id=chat_stream.stream_id,
         timestamp=time.time(),
-        limit=global_config.observation_context_size,
+        limit=global_config.chat.observation_context_size,
     )
     chat_talking_prompt = await build_readable_messages(
         message_list_before_now,
@@ -217,7 +216,7 @@ async def _build_prompt_focus(
             chat_target=chat_target_1,  # Used in group template
             # chat_talking_prompt=chat_talking_prompt,
             chat_info=chat_talking_prompt,
-            bot_name=global_config.BOT_NICKNAME,
+            bot_name=global_config.bot.nickname,
             # prompt_personality=prompt_personality,
             prompt_personality="",
             reason=reason,
@@ -233,7 +232,7 @@ async def _build_prompt_focus(
             info_from_tools=structured_info_prompt,
             sender_name=effective_sender_name,  # Used in private template
             chat_talking_prompt=chat_talking_prompt,
-            bot_name=global_config.BOT_NICKNAME,
+            bot_name=global_config.bot.nickname,
             prompt_personality=prompt_personality,
             # chat_target and chat_target_2 are not used in private template
             current_mind_info=current_mind_info,
@@ -288,7 +287,7 @@ class PromptBuilder:
             who_chat_in_group = get_recent_group_speaker(
                 chat_stream.stream_id,
                 (chat_stream.user_info.platform, chat_stream.user_info.user_id) if chat_stream.user_info else None,
-                limit=global_config.observation_context_size,
+                limit=global_config.chat.observation_context_size,
             )
         elif chat_stream.user_info:
             who_chat_in_group.append(
@@ -336,7 +335,7 @@ class PromptBuilder:
         message_list_before_now = get_raw_msg_before_timestamp_with_chat(
             chat_id=chat_stream.stream_id,
             timestamp=time.time(),
-            limit=global_config.observation_context_size,
+            limit=global_config.chat.observation_context_size,
         )
         chat_talking_prompt = await build_readable_messages(
             message_list_before_now,
@@ -348,18 +347,15 @@ class PromptBuilder:
 
         # 关键词检测与反应
         keywords_reaction_prompt = ""
-        for rule in global_config.keywords_reaction_rules:
-            if rule.get("enable", False):
-                if any(keyword in message_txt.lower() for keyword in rule.get("keywords", [])):
-                    logger.info(
-                        f"检测到以下关键词之一：{rule.get('keywords', [])}，触发反应：{rule.get('reaction', '')}"
-                    )
-                    keywords_reaction_prompt += rule.get("reaction", "") + "，"
+        for rule in global_config.keyword_reaction.rules:
+            if rule.enable:
+                if any(keyword in message_txt for keyword in rule.keywords):
+                    logger.info(f"检测到以下关键词之一：{rule.keywords}，触发反应：{rule.reaction}")
+                    keywords_reaction_prompt += f"{rule.reaction}，"
                 else:
-                    for pattern in rule.get("regex", []):
-                        result = pattern.search(message_txt)
-                        if result:
-                            reaction = rule.get("reaction", "")
+                    for pattern in rule.regex:
+                        if result := pattern.search(message_txt):
+                            reaction = rule.reaction
                             for name, content in result.groupdict().items():
                                 reaction = reaction.replace(f"[{name}]", content)
                             logger.info(f"匹配到以下正则表达式：{pattern}，触发反应：{reaction}")
@@ -411,8 +407,8 @@ class PromptBuilder:
                 nickname_info=nickname_injection_str,  # <--- 注入绰号信息
                 chat_talking_prompt=chat_talking_prompt,
                 message_txt=message_txt,
-                bot_name=global_config.BOT_NICKNAME,
-                bot_other_names="/".join(global_config.BOT_ALIAS_NAMES),
+                bot_name=global_config.bot.nickname,
+                bot_other_names="/".join(global_config.bot.alias_names),
                 prompt_personality=prompt_personality,
                 mood_prompt=mood_prompt,
                 reply_style1=reply_style1_chosen,
@@ -433,8 +429,8 @@ class PromptBuilder:
                 prompt_info=prompt_info,
                 chat_talking_prompt=chat_talking_prompt,
                 message_txt=message_txt,
-                bot_name=global_config.BOT_NICKNAME,
-                bot_other_names="/".join(global_config.BOT_ALIAS_NAMES),
+                bot_name=global_config.bot.nickname,
+                bot_other_names="/".join(global_config.bot.alias_names),
                 prompt_personality=prompt_personality,
                 mood_prompt=mood_prompt,
                 reply_style1=reply_style1_chosen,
@@ -702,84 +698,6 @@ class PromptBuilder:
         else:
             # 返回所有找到的内容，用换行分隔
             return "\n".join(str(result["content"]) for result in results)
-
-    async def build_planner_prompt(
-        self,
-        is_group_chat: bool,  # Now passed as argument
-        chat_target_info: Optional[dict],  # Now passed as argument
-        observed_messages_str: str,
-        current_mind: Optional[str],
-        structured_info: Dict[str, Any],
-        current_available_actions: Dict[str, str],
-        cycle_info: Optional[str],
-        nickname_info: str,
-        # replan_prompt: str, # Replan logic still simplified
-    ) -> str:
-        """构建 Planner LLM 的提示词 (获取模板并填充数据)"""
-        try:
-            # --- Determine chat context ---
-            chat_context_description = "你现在正在一个群聊中"
-            chat_target_name = None  # Only relevant for private
-            if not is_group_chat and chat_target_info:
-                chat_target_name = (
-                    chat_target_info.get("person_name") or chat_target_info.get("user_nickname") or "对方"
-                )
-                chat_context_description = f"你正在和 {chat_target_name} 私聊"
-            # --- End determining chat context ---
-
-            # ... (Copy logic from HeartFChatting._build_planner_prompt here) ...
-            # Structured info block
-            structured_info_block = ""
-            if structured_info:
-                structured_info_block = f"以下是一些额外的信息：\n{structured_info}\n"
-
-            # Chat content block
-            chat_content_block = ""
-            if observed_messages_str:
-                # Use triple quotes for multi-line string literal
-                chat_content_block = f"""观察到的最新聊天内容如下：
----
-{observed_messages_str}
----"""
-            else:
-                chat_content_block = "当前没有观察到新的聊天内容。\\n"
-
-            # Current mind block
-            mind_info_prompt = ""
-            if current_mind:
-                mind_info_prompt = f"对聊天的规划：{current_mind}"
-            else:
-                mind_info_prompt = "你刚参与聊天"
-
-            individuality = Individuality.get_instance()
-            prompt_personality = individuality.get_prompt(x_person=2, level=2)
-
-            action_options_text = "当前你可以选择的行动有：\n"
-            action_keys = list(current_available_actions.keys())
-            for name in action_keys:
-                desc = current_available_actions[name]
-                action_options_text += f"- '{name}': {desc}\n"
-
-            planner_prompt_template = await global_prompt_manager.get_prompt_async("planner_prompt")
-
-            prompt = planner_prompt_template.format(
-                bot_name=global_config.BOT_NICKNAME,
-                nickname_info=nickname_info,
-                prompt_personality=prompt_personality,
-                chat_context_description=chat_context_description,
-                structured_info_block=structured_info_block,
-                chat_content_block=chat_content_block,
-                mind_info_prompt=mind_info_prompt,
-                cycle_info_block=cycle_info,
-                action_options_text=action_options_text,
-                moderation_prompt=await global_prompt_manager.get_prompt_async("moderation_prompt"),
-            )
-            return prompt
-
-        except Exception as e:
-            logger.error(f"[PromptBuilder] 构建 Planner 提示词时出错: {e}")
-            logger.error(traceback.format_exc())
-            return "[构建 Planner Prompt 时出错]"
 
 
 def weighted_sample_no_replacement(items, weights, k) -> list:

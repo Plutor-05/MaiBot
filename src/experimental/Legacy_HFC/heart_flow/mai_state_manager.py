@@ -19,8 +19,8 @@ prevent_offline_state = True
 # 目前默认不启用OFFLINE状态
 
 # 不同状态下普通聊天的最大消息数
-base_normal_chat_num = global_config.base_normal_chat_num
-base_focused_chat_num = global_config.base_focused_chat_num
+base_normal_chat_num = global_config.chat.base_normal_chat_num
+base_focused_chat_num = global_config.chat.base_focused_chat_num
 
 
 MAX_NORMAL_CHAT_NUM_PEEKING = int(base_normal_chat_num / 2)
@@ -106,7 +106,7 @@ class MaiStateInfo:
             self.last_status_change_time = current_time
             self.last_min_check_time = current_time  # Reset 1-min check on any state change
             self.mai_status_history.append((new_status, current_time))
-            logger.info(f"麦麦状态更新为: {self.mai_status.value}")
+            logger.info(f"{global_config.bot.nickname}状态更新为: {self.mai_status.value}")
             return True
         else:
             return False
@@ -170,7 +170,7 @@ class MaiStateManager:
         elif current_status == MaiState.FOCUSED_CHAT:
             logger.info("当前在[专心看手机]思考要不要继续聊下去......")
 
-        # 1. 麦麦每分钟都有概率离线
+        # 1. {global_config.bot.nickname}每分钟都有概率离线
         if time_since_last_min_check >= 60:
             if current_status != MaiState.OFFLINE:
                 if random.random() < 0.03:  # 3% 概率切换到 OFFLINE
